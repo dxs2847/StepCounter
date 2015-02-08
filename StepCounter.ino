@@ -33,10 +33,18 @@ Adafruit_RGBLCDShield lcd = Adafruit_RGBLCDShield();
 #define STATE_SETUP    0x1
 #define STATE_READY    0x2
 #define STATE_RUNNING  0x3
-#define STATE_COMPLETE 0x4
+#define STATE_JUMPING  0x4
+#define STATE_COMPLETE 0x5
 
+#define LCD_PADDING_ZERO '0'
+#define LCD_PADDING_SPACE ' '
 #define LCD_POSITION_RUNG 14
 #define LCD_POSITION_SCR 8
+#define LCD_POSITION_RIGHT 15
+#define LCD_LINE_ZERO 0
+#define LCD_LINE_ONE 1
+
+#define MAX_JUMPS 7
 
 int programState;
 int displayState;
@@ -44,7 +52,9 @@ int rung;
 uint8_t buttonState;
 
 int currentSteps;
+int currentJumps;
 int switchState;
+boolean justJumped;
 
 void setup() {
 	// Debugging output
@@ -57,7 +67,9 @@ void setup() {
 	displayState = 0;
 	buttonState = 0;
 	rung = 1;
-	currentSteps = -1;
+	currentSteps = 0;
+	currentJumps = 0;
+	justJumped = false;
 	switchState = HIGH;
 
 	lcd.setBacklight(WHITE);
@@ -72,14 +84,20 @@ void loop()
 			break;
 		case STATE_READY:
 			processSwitch();
-			if(currentSteps == 0){
-				programState = STATE_RUNNING;
-			}
 			break;
 		case STATE_RUNNING:
 			processSwitch();
 			if(currentSteps == introLadder[rung]){
 				programState = STATE_COMPLETE;
+			}else if(currentSteps != 0 && currentSteps % 75 == 0 && !justJumped){
+				programState = STATE_JUMPING;
+			}
+		case STATE_JUMPING:
+			processSwitch();
+			if(currentJumps == MAX_JUMPS){
+				currentJumps = 0;
+				justJumped = true;
+				programState = STATE_RUNNING;
 			}
 		case STATE_COMPLETE:
 			break;
@@ -100,43 +118,25 @@ void processSwitch(){
 		switchState = newSwitchState;
 		
 		if(switchState == LOW){
-			currentSteps++;
-			
-			if(programState == STATE_RUNNING || programState == STATE_COMPLETE){
-				displayCurrentSCR(1);
+			switch(programState){
+				case STATE_READY:
+					programState = STATE_RUNNING;
+					break;
+				case STATE_RUNNING:
+					justJumped = false;
+					currentSteps++;
+					displayCurrentSCR(LCD_LINE_ONE);
+					break;
+				case STATE_JUMPING:
+					currentJumps++;
+					displayJumps();
+					break;
+				default:
+					break;
 			}
 		}
 	}
-	
 }
-
-// void checkSwitchState()
-// {
-	// newSwitchState = digitalRead(35);
-	// delay(10);
-	// state2 = digitalRead(35);
-
-	// if(newSwitchState == state2 && switchState != newSwitchState)
-	// {
-		// switchState = newSwitchState;
-		//// stateChanges++;
-		
-		// lcd.clear();
-		// lcd.setCursor(0,0);
-		
-		// if(switchState == HIGH)
-		// {
-			// lcd.print("HIGH");
-		// }
-		// else
-		// {
-			// lcd.print("LOW");
-		// } 
-		
-		// lcd.setCursor(0,1);
-		//// lcd.print(stateChanges);
-	// }  
-// }
 
 void processButtons(){
 	uint8_t buttons = lcd.readButtons();
@@ -179,17 +179,17 @@ void processButtons(){
 		}
 	
 		displayRung();
-		displaySelectedSCR(1);
+		displaySelectedSCR(LCD_LINE_ONE);
 	}
 }
 
-void displayNumber(int num, int width, int pos, int line){
+void displayNumber(int num, int width, int pos, int line, char padding){
 	lcd.setCursor(pos, line);
 	
 	Serial.print("num: "); Serial.print(num); Serial.print(", width: "); Serial.print(width); Serial.print(", line: "); Serial.println(line);
 
 	while(width > 0 && num < pow(10, --width)){
-		lcd.print(0, 10);
+		lcd.print(padding);
 		lcd.setCursor(++pos, line);
 	}
 
@@ -197,39 +197,44 @@ void displayNumber(int num, int width, int pos, int line){
 }
 
 void displayRung(){
-	displayNumber(rung, 2, LCD_POSITION_RUNG, 0);
+	displayNumber(rung, 2, LCD_POSITION_RUNG, LCD_LINE_ZERO, LCD_PADDING_ZERO);
 }
 
 void displaySelectedSCR(int line){
 	int steps = introLadder[rung];
 	
 	// Steps
-	displayNumber(steps, 3, LCD_POSITION_SCR, line);
+	displayNumber(steps, 3, LCD_POSITION_SCR, line, LCD_PADDING_ZERO);
 	lcd.setCursor(LCD_POSITION_SCR + 3, line);
 	lcd.print(":");
 	
 	// Count
-	displayNumber(steps / 75, 1, LCD_POSITION_SCR + 4, line);
+	displayNumber(steps / 75, 1, LCD_POSITION_SCR + 4, line, LCD_PADDING_ZERO);
 	lcd.setCursor(LCD_POSITION_SCR + 5, line);
 	lcd.print(":");
 	
 	// Remainder
-	displayNumber(steps % 75, 2, LCD_POSITION_SCR + 6, line);
+	displayNumber(steps % 75, 2, LCD_POSITION_SCR + 6, line, LCD_PADDING_ZERO);
 }
 
 void displayCurrentSCR(int line){
 	// Steps
-	displayNumber(currentSteps, 3, LCD_POSITION_SCR, line);
+	displayNumber(currentSteps, 3, LCD_POSITION_SCR, line, LCD_PADDING_ZERO);
 	lcd.setCursor(LCD_POSITION_SCR + 3, line);
 	lcd.print(":");
 	
 	// Count
-	displayNumber(currentSteps / 75, 1, LCD_POSITION_SCR + 4, line);
+	displayNumber(currentSteps / 75, 1, LCD_POSITION_SCR + 4, line, LCD_PADDING_ZERO);
 	lcd.setCursor(LCD_POSITION_SCR + 5, line);
 	lcd.print(":");
 	
 	// Remainder
-	displayNumber(currentSteps % 75, 2, LCD_POSITION_SCR + 6, line);
+	displayNumber(currentSteps % 75, 2, LCD_POSITION_SCR + 6, line, LCD_PADDING_ZERO);
+}
+
+void displayJumps()
+{
+	displayNumber(currentJumps, LCD_POSITION_RIGHT - LCD_POSITION_SCR + 1, LCD_POSITION_SCR, LCD_LINE_ONE, LCD_PADDING_SPACE);
 }
 
 void updateDisplay(){
@@ -241,27 +246,34 @@ void updateDisplay(){
 			case STATE_SETUP:
 				lcd.print("Select rung:");
 				displayRung();
-				displaySelectedSCR(1);
+				displaySelectedSCR(LCD_LINE_ONE);
 				break;
 			case STATE_READY:
 				lcd.print("S:C:R -");
-				displaySelectedSCR(0);
-				lcd.setCursor(0, 1);
+				displaySelectedSCR(LCD_LINE_ZERO);
+				lcd.setCursor(0, LCD_LINE_ONE);
 				lcd.print("Step on to begin");
 				break;
 			case STATE_RUNNING:
 				lcd.print("S:C:R -");
-				displaySelectedSCR(0);
-				lcd.setCursor(0, 1);
+				displaySelectedSCR(LCD_LINE_ZERO);
+				lcd.setCursor(0, LCD_LINE_ONE);
 				lcd.print("Current:");
-				displayCurrentSCR(1);
+				displayCurrentSCR(LCD_LINE_ONE);
+				break;
+			case STATE_JUMPING:
+				lcd.print("S:C:R -");
+				displaySelectedSCR(LCD_LINE_ZERO);
+				lcd.setCursor(0, LCD_LINE_ONE);
+				lcd.print("JUMP!");
+				displayJumps();
 				break;
 			case STATE_COMPLETE:
 				lcd.print("DONE!");
-				displaySelectedSCR(0);
-				lcd.setCursor(0, 1);
+				displaySelectedSCR(LCD_LINE_ZERO);
+				lcd.setCursor(0, LCD_LINE_ONE);
 				lcd.print("Current:");
-				displayCurrentSCR(1);
+				displayCurrentSCR(LCD_LINE_ONE);
 				break;
 			}
 			
